@@ -1,9 +1,33 @@
 import SwiftUI
+import PencilKit
+
+// Wraps a PKCanvasView and binds its tool to a SwiftUI state.
+struct PencilCanvasView: UIViewRepresentable {
+    @Binding var currentTool: PKTool
+    let canvasView = PKCanvasView()
+    
+    func makeUIView(context: Context) -> PKCanvasView {
+        canvasView.drawingPolicy = .anyInput
+        canvasView.backgroundColor = .clear
+        canvasView.tool = currentTool
+        return canvasView
+    }
+    
+    func updateUIView(_ uiView: PKCanvasView, context: Context) {
+        if type(of: uiView.tool) != type(of: currentTool) {
+            uiView.tool = currentTool
+        }
+    }
+
+}
 
 struct NotesPageView: View {
+    @State private var typedNotes: String = ""
+    // Default is a black pen.
+    @State private var currentTool: PKTool = PKInkingTool(.pen, color: .black, width: 5)
+    
     var body: some View {
         ZStack(alignment: .topLeading) {
-            
             Color(red: 1.0, green: 0.95, blue: 0.9)
                 .edgesIgnoringSafeArea(.all)
             
@@ -25,6 +49,9 @@ struct NotesPageView: View {
                 .fill(Color(red: 1.0, green: 0.8, blue: 0.85))
                 .frame(width: 80)
                 .edgesIgnoringSafeArea(.vertical)
+            
+            PencilCanvasView(currentTool: $currentTool)
+                .edgesIgnoringSafeArea(.all)
             
             HStack {
                 HStack(spacing: 20) {
@@ -50,22 +77,40 @@ struct NotesPageView: View {
                 
                 Spacer()
                 
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(red: 1.0, green: 0.7, blue: 0.8))
-                        .frame(width: 40, height: 40)
-                    
-                    Image(systemName: "circle.fill")
+                Button(action: {
+                    if currentTool is PKEraserTool {
+                        currentTool = PKInkingTool(.pen, color: .black, width: 5)
+                    } else {
+                        currentTool = PKEraserTool(.bitmap)
+                    }
+                }) {
+                    Image(systemName: (currentTool is PKEraserTool) ? "pencil" : "eraser")
                         .foregroundColor(.white)
+                        .padding(8)
+                        .background(Color(red: 1.0, green: 0.7, blue: 0.8))
+                        .cornerRadius(8)
                 }
                 .padding(.trailing, 20)
             }
             .padding(.top, 20)
+            
+//            VStack {
+//                Spacer()
+//                HStack {
+//                    TextEditor(text: $typedNotes)
+//                        .frame(height: 100)
+//                        .padding(8)
+//                        .background(Color.white.opacity(0.3))
+//                        .cornerRadius(8)
+//                        .padding(.leading, 100)
+//                        .padding(.trailing, 100)
+//                }
+//                .padding(.bottom, 20)
+//            }
         }
     }
 }
 
-// MARK: - Preview
 struct NotesPageView_Previews: PreviewProvider {
     static var previews: some View {
         NotesPageView()
