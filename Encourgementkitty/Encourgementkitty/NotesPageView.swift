@@ -1,6 +1,12 @@
 import SwiftUI
 import PencilKit
 
+struct NoteData: Codable, Identifiable {
+    let id: UUID
+    let drawingData: Data
+    let date: Date
+}
+
 struct PencilCanvasView: UIViewRepresentable {
     @Binding var currentTool: PKTool
     @Binding var currentDrawing: PKDrawing
@@ -15,26 +21,28 @@ struct PencilCanvasView: UIViewRepresentable {
         canvasView.drawingPolicy = .anyInput
         canvasView.backgroundColor = .clear
         canvasView.tool = currentTool
-        
-        // Initialize the canvas with the current drawing
         canvasView.drawing = currentDrawing
+        
+        // Add UIPencilInteraction to capture Apple Pencil double-tap gesture.
+        let pencilInteraction = UIPencilInteraction()
+        pencilInteraction.delegate = context.coordinator
+        canvasView.addInteraction(pencilInteraction)
         
         return canvasView
     }
     
     func updateUIView(_ uiView: PKCanvasView, context: Context) {
-        // Update the tool if changed
         if type(of: uiView.tool) != type(of: currentTool) {
             uiView.tool = currentTool
         }
-        // If SwiftUI changed the drawing externally, update the canvas
         if uiView.drawing != currentDrawing {
             uiView.drawing = currentDrawing
         }
     }
     
     // MARK: - Coordinator
-    class Coordinator: NSObject, PKCanvasViewDelegate {
+    
+    class Coordinator: NSObject, PKCanvasViewDelegate, UIPencilInteractionDelegate {
         var parent: PencilCanvasView
         
         init(_ parent: PencilCanvasView) {
@@ -42,34 +50,109 @@ struct PencilCanvasView: UIViewRepresentable {
         }
         
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            // Whenever the user draws/erases, update SwiftUI’s state
             parent.currentDrawing = canvasView.drawing
+        }
+        
+        // This delegate method is called when the user double-taps the Apple Pencil.
+        func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
+            // Toggle between pen and eraser.
+            if parent.currentTool is PKEraserTool {
+                parent.currentTool = PKInkingTool(.pen, color: .black, width: 5)
+            } else {
+                parent.currentTool = PKEraserTool(.bitmap)
+            }
         }
     }
 }
 
-//import SwiftUI
-//import PencilKit
+
+struct SavedNotesView: View {
+    @Environment(\.dismiss) var dismiss
+    @State private var notes: [NoteData] = []
+    
+    var body: some View {
+        NavigationView {
+            List(notes) { note in
+                NavigationLink(destination: NoteEditorView(note: note)) {
+                    HStack {
+                        // Thumbnail for the drawing
+                        if let thumbnail = drawingThumbnail(from: note.drawingData) {
+                            Image(uiImage: thumbnail)
+                                .resizable()
+                                .frame(width: 50, height: 50)
+                                .cornerRadius(4)
+                        }
+                        VStack(alignment: .leading) {
+                            Text(note.date, style: .date)
+                                .font(.headline)
+                            Text(note.date, style: .time)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Saved Notes")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .onAppear {
+            notes = loadNotesFromDisk()
+        }
+    }
+    
+    // Convert drawing data into a thumbnail image.
+    func drawingThumbnail(from drawingData: Data) -> UIImage? {
+        do {
+            let drawing = try PKDrawing(data: drawingData)
+            let bounds = drawing.bounds.insetBy(dx: -20, dy: -20)
+            return drawing.image(from: bounds, scale: 0.2)
+        } catch {
+            print("Error decoding drawing: \(error)")
+            return nil
+        }
+    }
+    
+    func loadNotesFromDisk() -> [NoteData] {
+        let url = getDocumentsDirectory().appendingPathComponent("SavedNotes.json")
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            return try decoder.decode([NoteData].self, from: data)
+        } catch {
+            print("Failed to load notes: \(error)")
+            return []
+        }
+    }
+    
+    func getDocumentsDirectory() -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+}
 
 struct NotesPageView: View {
-    // Default is a black pen.
+    // PencilKit tool state (default: black pen).
     @State private var currentTool: PKTool = PKInkingTool(.pen, color: .black, width: 5)
-    
-    // Track the user’s drawing
+    // Holds the current drawing.
     @State private var currentDrawing = PKDrawing()
+    // Controls whether the SavedNotesView is shown.
+    @State private var showSavedNotes = false
     
     var body: some View {
         ZStack(alignment: .topLeading) {
-            
-            // 1) Light pink background
+            // 1) Background: light pink paper.
             Color(red: 1.0, green: 0.95, blue: 0.9)
                 .edgesIgnoringSafeArea(.all)
             
-            // 2) Horizontal lines
+            // 2) Horizontal ruled lines.
             GeometryReader { geo in
                 let lineSpacing: CGFloat = 40
                 let lineCount = Int(geo.size.height / lineSpacing)
-                
                 ForEach(0..<lineCount, id: \.self) { i in
                     Path { path in
                         let yPos = lineSpacing * CGFloat(i) + 80
@@ -80,46 +163,48 @@ struct NotesPageView: View {
                 }
             }
             
-            // 3) Left margin
+            // 3) Left margin strip.
             Rectangle()
                 .fill(Color(red: 1.0, green: 0.8, blue: 0.85))
                 .frame(width: 80)
                 .edgesIgnoringSafeArea(.vertical)
             
-            // 4) PencilKit canvas (transparent so lines show behind it)
+            // 4) PencilKit drawing canvas (transparent so the ruled lines show).
             PencilCanvasView(currentTool: $currentTool, currentDrawing: $currentDrawing)
                 .edgesIgnoringSafeArea(.all)
             
-            // 5) Top bar icons
+            // 5) Top bar icons.
             HStack {
-                // --- FIRST ICON: Save the drawing to disk ---
+                // First Icon: Save the current note.
                 Button(action: {
-                    saveDrawing()
+                    saveCurrentNote()
                 }) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(Color(red: 1.0, green: 0.7, blue: 0.8))
                             .frame(width: 40, height: 40)
-                        
-                        Image(systemName: "list.bullet.rectangle")
+                        Image(systemName: "square.and.arrow.down")
                             .foregroundColor(.white)
                     }
                 }
                 
-                // --- SECOND ICON (placeholder) ---
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(red: 1.0, green: 0.7, blue: 0.8))
-                        .frame(width: 40, height: 40)
-                    
-                    Image(systemName: "rectangle.grid.2x2")
-                        .foregroundColor(.white)
+                // Second Icon: Show list of saved notes.
+                Button(action: {
+                    showSavedNotes = true
+                }) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(red: 1.0, green: 0.7, blue: 0.8))
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "list.bullet.rectangle")
+                            .foregroundColor(.white)
+                    }
                 }
                 .padding(.leading, 20)
                 
                 Spacer()
                 
-                // --- RIGHT ICON: Toggle pen/eraser ---
+                // Right Icon: Toggle between pen and eraser.
                 Button(action: {
                     if currentTool is PKEraserTool {
                         currentTool = PKInkingTool(.pen, color: .black, width: 5)
@@ -137,59 +222,73 @@ struct NotesPageView: View {
             }
             .padding(.leading, 90)
             .padding(.top, 20)
-            
-            // If you want typed text, uncomment below:
-/*
-            VStack {
-                Spacer()
-                HStack {
-                    TextEditor(text: $typedNotes)
-                        .frame(height: 100)
-                        .padding(8)
-                        .background(Color.white.opacity(0.3))
-                        .cornerRadius(8)
-                        .padding(.leading, 100)
-                        .padding(.trailing, 100)
-                }
-                .padding(.bottom, 20)
-            }
-*/
         }
+        // Present the SavedNotesView in a sheet.
+        .sheet(isPresented: $showSavedNotes) {
+            SavedNotesView()
+        }
+        // Load a previously saved drawing when the view appears.
         .onAppear {
             loadDrawing()
         }
     }
     
-    // MARK: - Save/Load Logic
-    private func saveDrawing() {
-        let data = currentDrawing.dataRepresentation()
-        let url = getDocumentsDirectory().appendingPathComponent("SavedDrawing.data")
-        
-        do {
-            try data.write(to: url)
-            print("Drawing saved to: \(url.path)")
-        } catch {
-            print("Error saving drawing: \(error)")
-        }
+    // MARK: - Saving and Loading Functions
+    
+    /// Save the current drawing as a new note.
+    func saveCurrentNote() {
+        let newNote = NoteData(
+            id: UUID(),
+            drawingData: currentDrawing.dataRepresentation(),
+            date: Date()
+        )
+        var allNotes = loadNotesFromDisk()
+        allNotes.append(newNote)
+        writeNotesToDisk(allNotes)
     }
     
-    private func loadDrawing() {
+    /// Load a previously saved drawing into the canvas.
+    func loadDrawing() {
         let url = getDocumentsDirectory().appendingPathComponent("SavedDrawing.data")
-        
         guard let data = try? Data(contentsOf: url) else { return }
         do {
             currentDrawing = try PKDrawing(data: data)
-            print("Loaded saved drawing!")
         } catch {
             print("Error loading drawing: \(error)")
         }
     }
     
-    private func getDocumentsDirectory() -> URL {
+    /// Load saved notes from disk.
+    func loadNotesFromDisk() -> [NoteData] {
+        let url = getDocumentsDirectory().appendingPathComponent("SavedNotes.json")
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            return try decoder.decode([NoteData].self, from: data)
+        } catch {
+            print("Failed to load notes: \(error)")
+            return []
+        }
+    }
+    
+    /// Write an array of notes to disk.
+    func writeNotesToDisk(_ notes: [NoteData]) {
+        let url = getDocumentsDirectory().appendingPathComponent("SavedNotes.json")
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .prettyPrinted
+            let data = try encoder.encode(notes)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            print("Error writing notes: \(error)")
+        }
+    }
+    
+    /// Helper: Return the URL for the app’s Documents directory.
+    func getDocumentsDirectory() -> URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 }
-
 
 struct NotesPageView_Previews: PreviewProvider {
     static var previews: some View {
