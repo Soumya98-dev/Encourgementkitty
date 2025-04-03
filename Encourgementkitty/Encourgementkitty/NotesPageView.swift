@@ -31,18 +31,53 @@ struct NoteData: Codable, Identifiable {
 
 // MARK: - Emoji Picker View
 
+//struct EmojiPickerView: View {
+//    let emojis: [String] = ["😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😍", "🤩", "😎", "😋", "😜", "🤪"]
+//    var onSelect: (String) -> Void
+//    
+//    var body: some View {
+//        ScrollView {
+//            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 20) {
+//                ForEach(emojis, id: \.self) { emoji in
+//                    Text(emoji)
+//                        .font(.largeTitle)
+//                        .onTapGesture {
+//                            onSelect(emoji)
+//                        }
+//                }
+//            }
+//            .padding()
+//        }
+//    }
+//}
+
 struct EmojiPickerView: View {
-    let emojis: [String] = ["😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😍", "🤩", "😎", "😋", "😜", "🤪"]
+    // List your custom emoji asset names.
+    let emojiAssetNames: [String] = [
+        "Untitled_Artwork 12",
+        "Untitled_Artwork 14",
+        "Untitled_Artwork 13",
+        "Untitled_Artwork 15",
+        "Untitled_Artwork 11",
+        "Untitled_Artwork 8",
+        "Untitled_Artwork 17",
+        "Untitled_Artwork 19",
+        "Untitled_Artwork 18",
+        "Untitled_Artwork 9",
+        "Untitled_Artwork 10"
+    ]
     var onSelect: (String) -> Void
     
     var body: some View {
         ScrollView {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 20) {
-                ForEach(emojis, id: \.self) { emoji in
-                    Text(emoji)
-                        .font(.largeTitle)
+                ForEach(emojiAssetNames, id: \.self) { assetName in
+                    Image(assetName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 50, height: 50)
                         .onTapGesture {
-                            onSelect(emoji)
+                            onSelect(assetName)
                         }
                 }
             }
@@ -50,6 +85,7 @@ struct EmojiPickerView: View {
         }
     }
 }
+
 
 // MARK: - PencilCanvasView (Unchanged Except for Emoji Integration)
 
@@ -221,9 +257,24 @@ struct NotesPageView: View {
                 .edgesIgnoringSafeArea(.all)
             
             // Emoji overlays.
+//            ForEach(emojiOverlays) { overlay in
+//                Text(overlay.emoji)
+//                    .font(.system(size: 50))
+//                    .position(overlay.position.toCGPoint())
+//                    .gesture(
+//                        DragGesture().onChanged { value in
+//                            if let index = emojiOverlays.firstIndex(where: { $0.id == overlay.id }) {
+//                                emojiOverlays[index].position = CodablePoint(x: value.location.x, y: value.location.y)
+//                            }
+//                        }
+//                    )
+//            }
+            
             ForEach(emojiOverlays) { overlay in
-                Text(overlay.emoji)
-                    .font(.system(size: 50))
+                Image(overlay.emoji)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 50, height: 50)
                     .position(overlay.position.toCGPoint())
                     .gesture(
                         DragGesture().onChanged { value in
@@ -233,6 +284,7 @@ struct NotesPageView: View {
                         }
                     )
             }
+
             
             // Top bar icons.
             HStack {

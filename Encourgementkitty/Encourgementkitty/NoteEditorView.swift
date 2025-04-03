@@ -44,9 +44,23 @@ struct NoteEditorView: View {
             }
             
             // Emoji overlays.
+//            ForEach(emojiOverlays) { overlay in
+//                Text(overlay.emoji)
+//                    .font(.system(size: 50))
+//                    .position(overlay.position.toCGPoint())
+//                    .gesture(
+//                        DragGesture().onChanged { value in
+//                            if let index = emojiOverlays.firstIndex(where: { $0.id == overlay.id }) {
+//                                emojiOverlays[index].position = CodablePoint(x: value.location.x, y: value.location.y)
+//                            }
+//                        }
+//                    )
+//            }
             ForEach(emojiOverlays) { overlay in
-                Text(overlay.emoji)
-                    .font(.system(size: 50))
+                Image(overlay.emoji)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 50, height: 50)
                     .position(overlay.position.toCGPoint())
                     .gesture(
                         DragGesture().onChanged { value in
@@ -56,7 +70,7 @@ struct NoteEditorView: View {
                         }
                     )
             }
-            
+
             Button(action: {
                 updateNote()
             }) {
