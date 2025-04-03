@@ -6,17 +6,18 @@ struct NoteEditorView: View {
     var note: NoteData
     @State private var currentDrawing: PKDrawing
     @State private var currentTool: PKTool = PKInkingTool(.pen, color: .black, width: 5)
+    @State private var emojiOverlays: [EmojiOverlay]
     
-    // Initialize state from the note’s drawing data.
+    // Initialize state from the note’s drawing data and emoji overlays.
     init(note: NoteData) {
         self.note = note
         _currentDrawing = State(initialValue: (try? PKDrawing(data: note.drawingData)) ?? PKDrawing())
+        _emojiOverlays = State(initialValue: note.emojiOverlays)
     }
     
     var body: some View {
         VStack {
             ZStack(alignment: .topLeading) {
-                // Background with pink paper and ruled lines
                 Color(red: 1.0, green: 0.95, blue: 0.9)
                     .edgesIgnoringSafeArea(.all)
                 
@@ -38,12 +39,24 @@ struct NoteEditorView: View {
                     .frame(width: 80)
                     .edgesIgnoringSafeArea(.vertical)
                 
-                // PencilKit canvas loaded with the saved drawing
                 PencilCanvasView(currentTool: $currentTool, currentDrawing: $currentDrawing)
                     .edgesIgnoringSafeArea(.all)
             }
             
-            // Button to update the note
+            // Emoji overlays.
+            ForEach(emojiOverlays) { overlay in
+                Text(overlay.emoji)
+                    .font(.system(size: 50))
+                    .position(overlay.position.toCGPoint())
+                    .gesture(
+                        DragGesture().onChanged { value in
+                            if let index = emojiOverlays.firstIndex(where: { $0.id == overlay.id }) {
+                                emojiOverlays[index].position = CodablePoint(x: value.location.x, y: value.location.y)
+                            }
+                        }
+                    )
+            }
+            
             Button(action: {
                 updateNote()
             }) {
@@ -60,15 +73,13 @@ struct NoteEditorView: View {
     }
     
     func updateNote() {
-        // Load the saved notes from disk.
         var notes = loadNotesFromDisk()
-        // Find the index of the note to update.
         if let index = notes.firstIndex(where: { $0.id == note.id }) {
-            // Create an updated note with the new drawing and current timestamp.
             let updatedNote = NoteData(
                 id: note.id,
                 drawingData: currentDrawing.dataRepresentation(),
-                date: Date()
+                date: Date(),
+                emojiOverlays: emojiOverlays
             )
             notes[index] = updatedNote
             writeNotesToDisk(notes)
@@ -76,7 +87,6 @@ struct NoteEditorView: View {
         dismiss()
     }
     
-    // Helper functions for disk storage.
     func loadNotesFromDisk() -> [NoteData] {
         let url = getDocumentsDirectory().appendingPathComponent("SavedNotes.json")
         do {
@@ -105,5 +115,3 @@ struct NoteEditorView: View {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 }
-
-

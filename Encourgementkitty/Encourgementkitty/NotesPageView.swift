@@ -1,11 +1,57 @@
 import SwiftUI
 import PencilKit
 
+// MARK: - Helper Types for Emoji Overlays
+
+struct CodablePoint: Codable {
+    var x: CGFloat
+    var y: CGFloat
+}
+
+extension CodablePoint {
+    func toCGPoint() -> CGPoint {
+        CGPoint(x: x, y: y)
+    }
+}
+
+struct EmojiOverlay: Codable, Identifiable {
+    let id: UUID
+    let emoji: String
+    var position: CodablePoint
+}
+
+// MARK: - Updated NoteData to Include Emojis
+
 struct NoteData: Codable, Identifiable {
     let id: UUID
     let drawingData: Data
     let date: Date
+    let emojiOverlays: [EmojiOverlay]
 }
+
+// MARK: - Emoji Picker View
+
+struct EmojiPickerView: View {
+    let emojis: [String] = ["😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😍", "🤩", "😎", "😋", "😜", "🤪"]
+    var onSelect: (String) -> Void
+    
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 20) {
+                ForEach(emojis, id: \.self) { emoji in
+                    Text(emoji)
+                        .font(.largeTitle)
+                        .onTapGesture {
+                            onSelect(emoji)
+                        }
+                }
+            }
+            .padding()
+        }
+    }
+}
+
+// MARK: - PencilCanvasView (Unchanged Except for Emoji Integration)
 
 struct PencilCanvasView: UIViewRepresentable {
     @Binding var currentTool: PKTool
@@ -53,9 +99,8 @@ struct PencilCanvasView: UIViewRepresentable {
             parent.currentDrawing = canvasView.drawing
         }
         
-        // This delegate method is called when the user double-taps the Apple Pencil.
+        // Toggle between pen and eraser on Apple Pencil double-tap.
         func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
-            // Toggle between pen and eraser.
             if parent.currentTool is PKEraserTool {
                 parent.currentTool = PKInkingTool(.pen, color: .black, width: 5)
             } else {
@@ -65,6 +110,7 @@ struct PencilCanvasView: UIViewRepresentable {
     }
 }
 
+// MARK: - SavedNotesView
 
 struct SavedNotesView: View {
     @Environment(\.dismiss) var dismiss
@@ -75,8 +121,8 @@ struct SavedNotesView: View {
             List(notes) { note in
                 NavigationLink(destination: NoteEditorView(note: note)) {
                     HStack {
-                        // Thumbnail for the drawing
-                        if let thumbnail = drawingThumbnail(from: note.drawingData) {
+                        // Thumbnail for the drawing (emoji overlays not rendered in thumbnail here for simplicity)
+                        if let thumbnail = drawingThumbnail(from: note.drawingData, emojiOverlays: note.emojiOverlays) {
                             Image(uiImage: thumbnail)
                                 .resizable()
                                 .frame(width: 50, height: 50)
@@ -106,11 +152,11 @@ struct SavedNotesView: View {
         }
     }
     
-    // Convert drawing data into a thumbnail image.
-    func drawingThumbnail(from drawingData: Data) -> UIImage? {
+    func drawingThumbnail(from drawingData: Data, emojiOverlays: [EmojiOverlay]) -> UIImage? {
         do {
             let drawing = try PKDrawing(data: drawingData)
             let bounds = drawing.bounds.insetBy(dx: -20, dy: -20)
+            // For simplicity, we’re not compositing emojis onto the thumbnail.
             return drawing.image(from: bounds, scale: 0.2)
         } catch {
             print("Error decoding drawing: \(error)")
@@ -135,21 +181,22 @@ struct SavedNotesView: View {
     }
 }
 
+// MARK: - NotesPageView with Emoji Picker Integration
+
 struct NotesPageView: View {
-    // PencilKit tool state (default: black pen).
     @State private var currentTool: PKTool = PKInkingTool(.pen, color: .black, width: 5)
-    // Holds the current drawing.
     @State private var currentDrawing = PKDrawing()
-    // Controls whether the SavedNotesView is shown.
     @State private var showSavedNotes = false
+    @State private var showEmojiPicker = false
+    @State private var emojiOverlays: [EmojiOverlay] = []
     
     var body: some View {
         ZStack(alignment: .topLeading) {
-            // 1) Background: light pink paper.
+            // Background: light pink paper.
             Color(red: 1.0, green: 0.95, blue: 0.9)
                 .edgesIgnoringSafeArea(.all)
             
-            // 2) Horizontal ruled lines.
+            // Horizontal ruled lines.
             GeometryReader { geo in
                 let lineSpacing: CGFloat = 40
                 let lineCount = Int(geo.size.height / lineSpacing)
@@ -163,22 +210,34 @@ struct NotesPageView: View {
                 }
             }
             
-            // 3) Left margin strip.
+            // Left margin strip.
             Rectangle()
                 .fill(Color(red: 1.0, green: 0.8, blue: 0.85))
                 .frame(width: 80)
                 .edgesIgnoringSafeArea(.vertical)
             
-            // 4) PencilKit drawing canvas (transparent so the ruled lines show).
+            // PencilCanvasView.
             PencilCanvasView(currentTool: $currentTool, currentDrawing: $currentDrawing)
                 .edgesIgnoringSafeArea(.all)
             
-            // 5) Top bar icons.
+            // Emoji overlays.
+            ForEach(emojiOverlays) { overlay in
+                Text(overlay.emoji)
+                    .font(.system(size: 50))
+                    .position(overlay.position.toCGPoint())
+                    .gesture(
+                        DragGesture().onChanged { value in
+                            if let index = emojiOverlays.firstIndex(where: { $0.id == overlay.id }) {
+                                emojiOverlays[index].position = CodablePoint(x: value.location.x, y: value.location.y)
+                            }
+                        }
+                    )
+            }
+            
+            // Top bar icons.
             HStack {
-                // First Icon: Save the current note.
-                Button(action: {
-                    saveCurrentNote()
-                }) {
+                // Save icon.
+                Button(action: { saveCurrentNote() }) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(Color(red: 1.0, green: 0.7, blue: 0.8))
@@ -188,10 +247,20 @@ struct NotesPageView: View {
                     }
                 }
                 
-                // Second Icon: Show list of saved notes.
-                Button(action: {
-                    showSavedNotes = true
-                }) {
+                // Emoji picker icon.
+                Button(action: { showEmojiPicker = true }) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(red: 1.0, green: 0.7, blue: 0.8))
+                            .frame(width: 40, height: 40)
+                        Text("😊")
+                            .font(.title)
+                    }
+                }
+                .padding(.leading, 10)
+                
+                // Show saved notes icon.
+                Button(action: { showSavedNotes = true }) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(Color(red: 1.0, green: 0.7, blue: 0.8))
@@ -200,11 +269,11 @@ struct NotesPageView: View {
                             .foregroundColor(.white)
                     }
                 }
-                .padding(.leading, 20)
+                .padding(.leading, 10)
                 
                 Spacer()
                 
-                // Right Icon: Toggle between pen and eraser.
+                // Toggle pen/eraser.
                 Button(action: {
                     if currentTool is PKEraserTool {
                         currentTool = PKInkingTool(.pen, color: .black, width: 5)
@@ -223,31 +292,34 @@ struct NotesPageView: View {
             .padding(.leading, 90)
             .padding(.top, 20)
         }
-        // Present the SavedNotesView in a sheet.
         .sheet(isPresented: $showSavedNotes) {
             SavedNotesView()
         }
-        // Load a previously saved drawing when the view appears.
-        .onAppear {
-            loadDrawing()
+        .sheet(isPresented: $showEmojiPicker) {
+            EmojiPickerView(onSelect: { emoji in
+                // Add the selected emoji at the center of the screen.
+                let newOverlay = EmojiOverlay(id: UUID(), emoji: emoji, position: CodablePoint(x: UIScreen.main.bounds.midX, y: UIScreen.main.bounds.midY))
+                emojiOverlays.append(newOverlay)
+                showEmojiPicker = false
+            })
         }
+        .onAppear { loadDrawing() }
     }
     
     // MARK: - Saving and Loading Functions
     
-    /// Save the current drawing as a new note.
     func saveCurrentNote() {
         let newNote = NoteData(
             id: UUID(),
             drawingData: currentDrawing.dataRepresentation(),
-            date: Date()
+            date: Date(),
+            emojiOverlays: emojiOverlays
         )
         var allNotes = loadNotesFromDisk()
         allNotes.append(newNote)
         writeNotesToDisk(allNotes)
     }
     
-    /// Load a previously saved drawing into the canvas.
     func loadDrawing() {
         let url = getDocumentsDirectory().appendingPathComponent("SavedDrawing.data")
         guard let data = try? Data(contentsOf: url) else { return }
@@ -258,7 +330,6 @@ struct NotesPageView: View {
         }
     }
     
-    /// Load saved notes from disk.
     func loadNotesFromDisk() -> [NoteData] {
         let url = getDocumentsDirectory().appendingPathComponent("SavedNotes.json")
         do {
@@ -271,7 +342,6 @@ struct NotesPageView: View {
         }
     }
     
-    /// Write an array of notes to disk.
     func writeNotesToDisk(_ notes: [NoteData]) {
         let url = getDocumentsDirectory().appendingPathComponent("SavedNotes.json")
         do {
@@ -284,7 +354,6 @@ struct NotesPageView: View {
         }
     }
     
-    /// Helper: Return the URL for the app’s Documents directory.
     func getDocumentsDirectory() -> URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
@@ -297,3 +366,5 @@ struct NotesPageView_Previews: PreviewProvider {
             .previewInterfaceOrientation(.portrait)
     }
 }
+
+
